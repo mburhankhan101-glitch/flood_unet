@@ -1,0 +1,11 @@
+{
+ "name": "s1_unet",
+ "epochs": 60,
+ "patience": 10,
+ "crop": 256,
+ "batch": 8,
+ "lr": 0.001,
+ "weight_decay": 0.0001,
+ "base": 16,
+ "budget": 7.0
+}
