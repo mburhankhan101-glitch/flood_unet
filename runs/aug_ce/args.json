@@ -1,0 +1,14 @@
+{
+ "name": "aug_ce",
+ "epochs": 60,
+ "patience": 20,
+ "crop": 256,
+ "batch": 8,
+ "lr": 0.001,
+ "weight_decay": 0.0001,
+ "base": 16,
+ "augment": true,
+ "jitter": 1.0,
+ "loss": "ce",
+ "budget": 7.0
+}

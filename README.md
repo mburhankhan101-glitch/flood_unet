@@ -43,8 +43,8 @@ python evaluate.py     # scores on test, Bolivia and the Pakistan test chips, ne
 A four-level U-Net (1.94 million weights) on radar only (VV, VH in dB, clipped to [-35, 5] and
 standardised with training statistics). Each epoch takes one random 256 x 256 crop per training chip;
 cross-entropy with water weighted 9.5x (water is 9.5% of training pixels), no-data pixels ignored.
-The best epoch by validation IoU is kept (epoch 26 of 36, early stopping after 10 epochs without
-improvement). Every chip is then mapped whole (512 x 512).
+The best epoch by validation IoU is kept (epoch 26; training stopped at epoch 46 after 20 epochs
+without improvement). Every chip is then mapped whole (512 x 512).
 
 | Pooled IoU of water | Otsu | U-Net |
 |---|---|---|
@@ -65,11 +65,55 @@ improvement). Every chip is then mapped whole (512 x 512).
 
 ![Pakistan test chips](runs/s1_unet/pakistan_test.png)
 
+## Step 2: augmentation, Dice loss and the decision threshold
+
+```powershell
+python train.py --name aug_ce --augment --patience 20
+python train.py --name aug_cedice --augment --loss ce+dice --patience 20
+python evaluate.py --name aug_ce       # and --name s1_unet, --name aug_cedice
+```
+
+An ablation, one change at a time, all with the same stopping rule (patience 20, fixed before any
+test result was seen):
+
+- **Augmentation** (`--augment`): every training crop gets a random 90-degree rotation, a random flip
+  and one brightness shift of up to +/-1 dB on both bands; the label is rotated and flipped with it.
+- **Dice loss** (`--loss ce+dice`): soft Dice of the water class added to the weighted cross-entropy.
+- **Decision threshold**: the U-Net outputs a water probability; instead of always cutting at 0.5,
+  `evaluate.py` picks the cut (0.05 to 0.95) that gives the best validation IoU and then uses it
+  unchanged on test, Bolivia and Pakistan.
+
+| Pooled IoU of water | Threshold | Best epoch | Valid | Test | Bolivia | Pakistan test |
+|---|---|---|---|---|---|---|
+| Otsu | - | - | 0.507 | 0.554 | **0.718** | 0.181 |
+| Step 1 U-Net, cut at 0.5 | 0.5 | 26 of 46 | 0.619 | 0.618 | 0.682 | **0.215** |
+| Step 1 U-Net, tuned cut | 0.6 | 26 of 46 | 0.639 | **0.652** | 0.670 | 0.198 |
+| + augmentation, tuned cut | 0.6 | 22 of 42 | 0.631 | 0.643 | 0.618 | 0.189 |
+| + augmentation + Dice, tuned cut | 0.5 | 44 of 60 | 0.632 | **0.652** | 0.615 | 0.193 |
+
+(Validation IoU at a tuned cut is optimistic, because the cut was chosen on it; test is not.)
+
+- **The cheapest change helped most.** Moving the cut from 0.5 to 0.6 lifts the Step 1 model from
+  0.618 to 0.652 on test with no retraining: false alarms fall 39% (0.98 to 0.60 million pixels) for
+  36% more missed water (0.35 to 0.48 million). Weighting water 9.5x in the loss pushes the model to
+  say "water" too often; a higher cut undoes part of that.
+- **Dice did the same thing from inside the training.** With Dice the best cut is already 0.5, and
+  the test errors (0.58 million false alarms, 0.49 million missed) are almost exactly those of the
+  Step 1 model at 0.6. Same result on test, reached a different way.
+- **Augmentation did not help, and on Bolivia it hurt** (0.67 to 0.62). One possible reason, not
+  tested: the +/-1 dB shift blurs the absolute brightness that separates water from land in radar,
+  while rotations and flips add little to 252 chips of mostly flat, orientation-free scenes.
+- **Bolivia still belongs to Otsu.** No version of the U-Net beats the threshold on the unseen
+  event, and the gap grew with the later runs: what improves the familiar events does not carry over.
+- **Caution:** one run per setting, and validation IoU swings by up to 0.1 from one epoch to the
+  next. Differences of 0.01 between rows are within that noise; only the threshold effect (0.03 on
+  test, the same direction on every split but Bolivia and Pakistan) and the Bolivia gap are clear.
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
 - [x] U-Net on Sentinel-1 (VV, VH) vs Otsu: test, Bolivia, Pakistan
-- [ ] Better training: augmentation, weighted / Dice loss for the rare water class
+- [x] Better training: augmentation, Dice loss, a tuned decision threshold (only the threshold helped)
 - [ ] Radar + optical (Sentinel-2) vs radar alone
 - [ ] A pretrained encoder vs training from scratch
 - [ ] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project

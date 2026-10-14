@@ -6,6 +6,10 @@ cross-entropy with class weights from the training labels (water is rare) and -1
 After each epoch the validation chips are mapped whole and scored with pooled IoU; the best epoch is
 kept (best.pt). Training stops when validation IoU has not improved for --patience epochs.
 
+--augment adds a random 90-degree rotation, a random flip and a random brightness shift of up to
+--jitter dB (the same shift on VV and VH) to every training crop; the label is rotated and flipped
+with it. --loss ce+dice adds a soft Dice loss on the water class to the weighted cross-entropy.
+
 A checkpoint (last.pt) is written after every epoch, so a run that is stopped (--budget minutes, a
 crash, a closed laptop) continues where it left off when started again.
 
@@ -38,8 +42,30 @@ def parse_args():
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--base", type=int, default=16, help="filters in the first layer")
+    p.add_argument("--augment", action="store_true", help="rotations, flips and dB jitter")
+    p.add_argument("--jitter", type=float, default=1.0, help="largest brightness shift in dB (with --augment)")
+    p.add_argument("--loss", choices=["ce", "ce+dice"], default="ce")
     p.add_argument("--budget", type=float, default=9.0, help="minutes; stop after the epoch that passes this")
     return p.parse_args()
+
+
+def augment(x, y, rng, jitter_norm):
+    """The same random rotation and flip for image and label; one brightness shift for the crop."""
+    k = int(rng.integers(4))
+    x, y = np.rot90(x, k, axes=(1, 2)), np.rot90(y, k)
+    if rng.random() < 0.5:
+        x, y = x[:, :, ::-1], y[:, ::-1]
+    x = x + rng.uniform(-1, 1) * jitter_norm[:, None, None]    # dB shift, in standardised units per band
+    return np.ascontiguousarray(x, dtype="float32"), np.ascontiguousarray(y)
+
+
+def dice_loss(logits, y):
+    """1 - soft Dice of the water class over the labelled pixels of the batch."""
+    p = torch.softmax(logits, 1)[:, 1]
+    ok = (y >= 0).float()
+    t = (y == 1).float()
+    inter = (p * t * ok).sum()
+    return 1 - (2 * inter + 1) / ((p * ok).sum() + (t * ok).sum() + 1)
 
 
 def predict(model, x, batch=4):
@@ -69,7 +95,9 @@ def main():
     torch.manual_seed(SEED)
     model = UNet(cin=2, base=args.base)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    loss_fn = nn.CrossEntropyLoss(weight=weights, ignore_index=-1)
+    ce = nn.CrossEntropyLoss(weight=weights, ignore_index=-1)
+    loss_fn = (lambda out, y: ce(out, y) + dice_loss(out, y)) if args.loss == "ce+dice" else ce
+    jitter_norm = args.jitter / np.array(stats["std"], dtype="float32")
     rng = np.random.default_rng(SEED)
     state = {"epoch": 0, "best": -1.0, "wait": 0, "history": []}
     last = os.path.join(run, "last.pt")
@@ -97,8 +125,11 @@ def main():
                     r, s = rng.integers(0, 512 - c + 1, size=2)
                     if (ytr[k, r:r + c, s:s + c] >= 0).mean() > 0.2:
                         break
-                xb.append(xtr[k, :, r:r + c, s:s + c])
-                yb.append(ytr[k, r:r + c, s:s + c])
+                xc, yc = xtr[k, :, r:r + c, s:s + c], ytr[k, r:r + c, s:s + c]
+                if args.augment:
+                    xc, yc = augment(xc, yc, rng, jitter_norm)
+                xb.append(xc)
+                yb.append(yc)
             loss = loss_fn(model(torch.from_numpy(np.stack(xb))), torch.from_numpy(np.stack(yb)))
             opt.zero_grad()
             loss.backward()
