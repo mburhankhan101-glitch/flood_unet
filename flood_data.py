@@ -4,6 +4,12 @@ Loading Sen1Floods11 hand-labelled chips for training and evaluation.
 Radar (VV, VH, dB) is clipped to [-35, 5] dB, then standardised with the mean and spread of the
 TRAINING chips only. Missing radar becomes 0 (the average) and its pixels get label -1, so neither
 the loss nor the scores use them: water can't be mapped where the radar saw nothing.
+
+Optical (Sentinel-2, 13 bands, reflectance x 10000) is standardised the same way, band by band.
+Missing optical (0 in every band) also becomes 0, but the label is kept: it is only 0.05-0.66% of the
+labelled pixels per split, and this way every model is scored on exactly the same pixels.
+
+--bands picks the inputs: s1 (VV, VH), s2 (13 optical bands) or s1s2 (all 15, radar first).
 """
 import json
 import os
@@ -14,6 +20,8 @@ import rasterio
 
 DATA = "data"
 CLIP = (-35.0, 5.0)
+S2_BANDS = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B10", "B11", "B12"]
+SENSORS = {"s1": ["s1"], "s2": ["s2"], "s1s2": ["s1", "s2"]}
 
 
 def split_chips(split):
@@ -37,15 +45,24 @@ def raw_chip(chip):
     return s1, label
 
 
-def norm_stats(chips, path):
+def raw_s2(chip):
+    """Optical (13, 512, 512) reflectance x 10000, NaN where the chip has no optical data."""
+    s2 = read("S2Hand", chip).astype("float32")
+    s2[:, (s2 == 0).all(axis=0) | ~np.isfinite(s2).all(axis=0)] = np.nan
+    return s2
+
+
+def norm_stats(chips, path, sensor="s1"):
     """Per-band mean and standard deviation over the training chips (cached as JSON)."""
     if os.path.exists(path):
         return json.load(open(path))
-    vals = [[], []]
+    reader = (lambda c: raw_chip(c)[0]) if sensor == "s1" else raw_s2
+    vals = None
     for chip in chips:
-        s1, _ = raw_chip(chip)
-        for b in range(2):
-            v = s1[b][np.isfinite(s1[b])]
+        img = reader(chip)
+        vals = vals or [[] for _ in img]
+        for b in range(len(img)):
+            v = img[b][np.isfinite(img[b])]
             vals[b].append(v[::7])          # a sample is plenty for a mean and a spread
     stats = {"mean": [float(np.mean(np.concatenate(v))) for v in vals],
              "std": [float(np.std(np.concatenate(v))) for v in vals]}
@@ -54,16 +71,29 @@ def norm_stats(chips, path):
     return stats
 
 
-def load_split(split, stats):
-    """All chips of a split in memory: x (n, 2, 512, 512) float32 standardised, y (n, 512, 512) int64."""
+def band_stats(bands="s1"):
+    """Training-chip statistics for each sensor in bands: {"s1": {...}, "s2": {...}}."""
+    train = split_chips("train")
+    return {s: norm_stats(train, os.path.join("runs", f"norm_{s}.json"), s) for s in SENSORS[bands]}
+
+
+def load_split(split, stats, bands="s1"):
+    """All chips of a split in memory: x (n, channels, 512, 512) standardised, y (n, 512, 512) int64.
+
+    x is float32 for radar alone and float16 with optical bands (15 bands of 512 x 512 for 341 chips
+    would not fit in a laptop's memory as float32); batches are turned back into float32."""
     chips = split_chips(split)
     xs, ys = [], []
-    mean = np.array(stats["mean"], dtype="float32")[:, None, None]
-    std = np.array(stats["std"], dtype="float32")[:, None, None]
+    dtype = "float32" if bands == "s1" else "float16"
     for chip in chips:
         s1, label = raw_chip(chip)
-        x = (s1 - mean) / std
-        xs.append(np.nan_to_num(x, nan=0.0))
+        parts = []
+        for sensor in SENSORS[bands]:
+            img = s1 if sensor == "s1" else raw_s2(chip)
+            mean = np.array(stats[sensor]["mean"], dtype="float32")[:, None, None]
+            std = np.array(stats[sensor]["std"], dtype="float32")[:, None, None]
+            parts.append(np.nan_to_num((img - mean) / std, nan=0.0))
+        xs.append(np.concatenate(parts).astype(dtype))
         ys.append(label)
     return chips, np.stack(xs), np.stack(ys)
 

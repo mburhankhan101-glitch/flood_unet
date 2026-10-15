@@ -109,11 +109,55 @@ test result was seen):
   next. Differences of 0.01 between rows are within that noise; only the threshold effect (0.03 on
   test, the same direction on every split but Bolivia and Pakistan) and the Bolivia gap are clear.
 
+## Step 3: radar + optical
+
+```powershell
+python train.py --name s2_unet --bands s2 --patience 20        # Sentinel-2 only, 13 bands
+python train.py --name s1s2_unet --bands s1s2 --patience 20    # radar + optical, 15 bands
+python evaluate.py --name s1s2_unet                            # reads the bands from the run
+```
+
+Same recipe as Step 1 (cross-entropy, no augmentation, patience 20, cut tuned on validation); only
+the inputs change. Optical bands are standardised band by band with training statistics and simply
+stacked with the radar as extra input channels (early fusion): the first layer grows by 1,872 weights,
+0.1% of the model. Missing optical becomes 0, without changing the labels, so all models are scored on
+exactly the same pixels.
+
+| Pooled IoU of water (tuned cut) | Cut | Best epoch | Test | Pakistan test | Bolivia |
+|---|---|---|---|---|---|
+| Otsu | - | - | 0.554 | 0.181 | **0.718** |
+| Radar only (Step 1) | 0.6 | 26 of 46 | 0.652 | 0.198 | 0.670 |
+| Optical only | 0.7 | 6 of 26 | **0.830** | **0.762** | 0.671 |
+| Radar + optical | 0.55 | 29 of 49 | 0.807 | 0.725 | 0.596 |
+| Radar + optical, **optical removed** | 0.55 | | 0.423 | 0.072 | 0.188 |
+
+- **Optical is the big step.** Test IoU goes from 0.65 to 0.83 and Pakistan from 0.20 to 0.76. The
+  dunes and dry flat ground that fool radar are bright in near- and shortwave-infrared, while water is
+  dark there.
+- **Adding radar to optical did not help** on these chips (0.807 against 0.830, one run each, so the
+  gap may be noise). Two reasons this test favours optical: cloudy areas were mostly left unlabelled
+  by the annotators (only about 0.7% of labelled test pixels look cloudy), so the test is close to a
+  clear-sky test; and the dataset README does not say which images the annotators drew the labels on,
+  so optical may match the labels partly because the labels came from optical images (to check in the
+  paper before claiming either way).
+- **The radar + optical model leans on optical almost completely.** With the optical bands blanked it
+  scores 0.42 on test, far below the radar-only model (0.65), and 0.07 in Pakistan. Under a monsoon
+  cloud, which is when floods happen, it would be worse than using radar alone. The cloudiest labelled
+  test chip shows the same thing: Sri-Lanka_1049830 scores 0.57 with radar only, 0.35 with radar +
+  optical and 0.09 with optical only.
+- **Bolivia still belongs to Otsu.** The cut chosen on validation (0.7 for optical) cost a lot on
+  Bolivia: at 0.5 the optical model would have scored 0.81 there, above Otsu, but picking the cut
+  after seeing Bolivia would be choosing it on the test. On a new event the model is less sure, so a
+  high cut drops real water (0.15 million missed pixels against 0.05 million at 0.5).
+
+![Pakistan test chips, radar + optical](runs/s1s2_unet/pakistan_test.png)
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
 - [x] U-Net on Sentinel-1 (VV, VH) vs Otsu: test, Bolivia, Pakistan
 - [x] Better training: augmentation, Dice loss, a tuned decision threshold (only the threshold helped)
-- [ ] Radar + optical (Sentinel-2) vs radar alone
+- [x] Radar + optical (Sentinel-2) vs radar alone (optical wins on clear pixels; the fused model ignores radar)
+- [ ] Train radar + optical with the optical bands randomly blanked, so it learns to fall back on radar
 - [ ] A pretrained encoder vs training from scratch
 - [ ] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project

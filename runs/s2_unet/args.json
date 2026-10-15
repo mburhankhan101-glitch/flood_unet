@@ -1,0 +1,15 @@
+{
+ "name": "s2_unet",
+ "bands": "s2",
+ "epochs": 60,
+ "patience": 20,
+ "crop": 256,
+ "batch": 8,
+ "lr": 0.001,
+ "weight_decay": 0.0001,
+ "base": 16,
+ "augment": false,
+ "jitter": 1.0,
+ "loss": "ce",
+ "budget": 7.0
+}
