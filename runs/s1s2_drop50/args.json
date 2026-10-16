@@ -1,0 +1,16 @@
+{
+ "name": "s1s2_drop50",
+ "bands": "s1s2",
+ "epochs": 60,
+ "patience": 20,
+ "crop": 256,
+ "batch": 8,
+ "lr": 0.001,
+ "weight_decay": 0.0001,
+ "base": 16,
+ "augment": false,
+ "jitter": 1.0,
+ "loss": "ce",
+ "drop_optical": 0.5,
+ "budget": 7.0
+}

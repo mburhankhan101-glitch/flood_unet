@@ -152,12 +152,47 @@ exactly the same pixels.
 
 ![Pakistan test chips, radar + optical](runs/s1s2_unet/pakistan_test.png)
 
+## Step 3b: sensor dropout
+
+```powershell
+python train.py --name s1s2_drop50 --bands s1s2 --drop-optical 0.5 --patience 20
+python evaluate.py --name s1s2_drop50
+```
+
+The radar + optical model of Step 3 had learned the easy route (optical) and never needed radar, so
+with optical gone it fell below a radar-only model. Here half of the training crops, chosen at random,
+have all optical bands blanked (set to 0, the training average, as for missing data): on those the
+model can only use radar. Everything else is the Step 3 recipe. p = 0.5 and the targets were fixed
+before training: optical removed on test at about 0.60 or more, and clear test within 0.02 of 0.807.
+
+| Pooled IoU of water (tuned cut) | Test | Pakistan test | Bolivia |
+|---|---|---|---|
+| Radar only (Step 1) | 0.652 | 0.198 | 0.670 |
+| Radar + optical (Step 3) | 0.807 | 0.725 | 0.596 |
+| Radar + optical (Step 3), optical removed | 0.423 | 0.072 | 0.188 |
+| **Sensor dropout** (cut 0.65) | 0.780 | 0.686 | 0.545 |
+| **Sensor dropout, optical removed** | **0.611** | 0.157 | **0.669** |
+
+- **It learned radar.** With optical removed, test goes from 0.42 to 0.61 (target met) and Bolivia
+  from 0.19 to 0.67, level with the radar-only model. One model now does both jobs reasonably.
+- **It cost some clear-sky accuracy:** 0.780 against 0.807 on test, a drop of 0.027, just outside the
+  0.02 target. Half of the crops no longer teach the optical route. One run each, so treat the
+  exact gap with care.
+- **Real clouds are a different problem.** On the cloudiest labelled test chip (Sri-Lanka_1049830) the
+  dropout model scores 0.06, against 0.57 for radar only. Training taught it what to do when optical
+  is *missing* (zeros); a real cloud is *present and bright*, looks like dry land, and the model
+  trusts it. Real use (Dadu) needs a cloud mask first: blank the optical bands where there is cloud,
+  then map.
+- The cut (0.65) was chosen on validation with optical present; the "optical removed" rows use the
+  same cut, so they are not tuned for radar-only use.
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
 - [x] U-Net on Sentinel-1 (VV, VH) vs Otsu: test, Bolivia, Pakistan
 - [x] Better training: augmentation, Dice loss, a tuned decision threshold (only the threshold helped)
 - [x] Radar + optical (Sentinel-2) vs radar alone (optical wins on clear pixels; the fused model ignores radar)
-- [ ] Train radar + optical with the optical bands randomly blanked, so it learns to fall back on radar
+- [x] Train radar + optical with the optical bands randomly blanked, so it learns to fall back on radar
+- [ ] A cloud mask: blank cloudy optical pixels before mapping, so real clouds are treated as missing
 - [ ] A pretrained encoder vs training from scratch
 - [ ] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project

@@ -11,12 +11,17 @@ kept (best.pt). Training stops when validation IoU has not improved for --patien
 --jitter dB (the same shift on VV and VH; optical bands are not shifted) to every training crop; the label is rotated and flipped
 with it. --loss ce+dice adds a soft Dice loss on the water class to the weighted cross-entropy.
 
+--drop-optical P (radar + optical only) blanks all optical bands of a training crop with probability
+P: set to 0, the training average, the same as missing data. Those crops can only be mapped from
+radar, so the model has to learn radar as well instead of leaning on optical alone (sensor dropout).
+
 A checkpoint (last.pt) is written after every epoch, so a run that is stopped (--budget minutes, a
 crash, a closed laptop) continues where it left off when started again.
 
     python train.py                  # runs/s1_unet/
     python train.py --name test --epochs 2
     python train.py --name s1s2_unet --bands s1s2 --patience 20
+    python train.py --name s1s2_drop50 --bands s1s2 --drop-optical 0.5 --patience 20
 """
 import argparse
 import json
@@ -48,6 +53,8 @@ def parse_args():
     p.add_argument("--augment", action="store_true", help="rotations, flips and dB jitter")
     p.add_argument("--jitter", type=float, default=1.0, help="largest brightness shift in dB (with --augment)")
     p.add_argument("--loss", choices=["ce", "ce+dice"], default="ce")
+    p.add_argument("--drop-optical", type=float, default=0.0,
+                   help="probability of blanking the optical bands of a training crop (with --bands s1s2)")
     p.add_argument("--budget", type=float, default=9.0, help="minutes; stop after the epoch that passes this")
     return p.parse_args()
 
@@ -83,6 +90,8 @@ def predict(model, x, batch=4):
 
 def main():
     args = parse_args()
+    if args.drop_optical and args.bands != "s1s2":
+        raise SystemExit("--drop-optical needs --bands s1s2")
     run = os.path.join("runs", args.name)
     os.makedirs(run, exist_ok=True)
     torch.set_num_threads(max(1, os.cpu_count() or 1))
@@ -133,6 +142,9 @@ def main():
                 xc, yc = xtr[k, :, r:r + c, s:s + c], ytr[k, r:r + c, s:s + c]
                 if args.augment:
                     xc, yc = augment(xc, yc, rng, jitter_norm)
+                if args.drop_optical and rng.random() < args.drop_optical:
+                    xc = xc.copy()          # a copy: never change the training data itself
+                    xc[2:] = 0
                 xb.append(xc)
                 yb.append(yc)
             loss = loss_fn(model(torch.from_numpy(np.stack(xb)).float()), torch.from_numpy(np.stack(yb)))
