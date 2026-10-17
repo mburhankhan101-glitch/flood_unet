@@ -1,0 +1,5 @@
+optical,pakistan_iou,found,false_alarms,missed
+L1C (training type),0.66,222217,58741,55583
+L1C without B10,0.654,220764,59900,57036
+"raw L2A, no B10",0.246,257575,770523,20225
+"converted L2A, no B10",0.616,209739,62415,68061

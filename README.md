@@ -235,6 +235,64 @@ from 0.06 to 0.40.
 
 ![Pasted clouds](runs/clouds/cloud_test.png)
 
+## Step 4: Dadu 2022
+
+```powershell
+python s1_grd.py --check    # rebuilt radar against the training chips
+python s2_l2a.py --check    # the L2A / L1C gap, and what it does to the model
+python dadu.py              # map 23 September 2022 and compare (about 30 minutes)
+```
+
+The real test: the floods west of the Indus around Dadu, Johi and Khairpur Nathan Shah, on
+23 September 2022, in crop_project's 50 x 50 km box. That day has a radar pass on crop_project's own
+orbit and a clear optical image, so both maps use the same radar pass.
+
+**Getting the same kind of input as in training was most of the work.**
+
+| Input | What the model was trained on | What is freely available | What was done |
+|---|---|---|---|
+| Radar | sigma-nought from Earth Engine | Planetary Computer: raw GRD files, and a terrain-corrected gamma-nought (RTC) | sigma-nought rebuilt from the raw files: thermal noise removed, calibrated, placed with the scene's control points, then shifted into place against the RTC |
+| Optical | L1C, top of atmosphere, 13 bands | L2A, haze removed, no B10 (L1C needs an account) | a straight-line conversion per band, fitted on the Pakistan training chips |
+
+- **Rebuilt radar matches the training chips:** median difference 0.01-0.03 dB on three events
+  (Bolivia, Somalia, Nigeria; the exact Pakistan pass is not on Planetary Computer). The RTC product
+  is 0.9-2.1 dB brighter: using it as it is would have shifted every pixel by 0.2-0.5 standard
+  deviations. The control points place pixels 40-150 m off (they assume the wrong ground height), which
+  the shift onto the RTC removes; after it the smoothed images correlate at 0.98 in Bolivia and
+  0.73-0.91 in Somalia and Nigeria.
+- **Optical: raw L2A breaks the model.** On the 12 labelled Pakistan validation and test chips, the
+  dropout model scores 0.660 with the real L1C, 0.654 without B10, **0.246 with raw L2A** (770,000 false
+  alarms against 59,000) and 0.616 with converted L2A. L1C is brighter in blue by about 370 (haze);
+  L2A is brighter in the infrared bands.
+
+**Dadu, 23 September 2022** (agreement = water in both maps divided by water in either; there are no
+hand labels here, so this is agreement, not accuracy):
+
+| Map | Water, km2 | Agreement with NDWI > 0 | Agreement with the threshold map |
+|---|---|---|---|
+| Threshold map (crop_project rule) | 800.5 | 0.745 | 1 |
+| Threshold map without its "dark in June" class | 690.2 | 0.802 | 0.862 |
+| Radar U-Net | 1168.2 | 0.628 | 0.644 |
+| Optical U-Net | 848.9 | 0.895 | 0.721 |
+| Radar + optical U-Net | 906.8 | 0.842 | 0.715 |
+| Sensor dropout + cloud mask U-Net | 869.6 | 0.854 | 0.745 |
+| NDWI > 0 on the clear optical image | 683.3 (clear pixels) | 1 | 0.745 |
+
+- **The radar U-Net does worst here** (0.63 with NDWI) and maps the most water: dark, smooth fields and
+  dry ground across the box become "water". The threshold map does better with radar alone (0.80
+  without its "dark in June" class) because it compares the day with June: a before / after change is
+  a stronger clue than any single-date picture, and our U-Net only ever sees one date.
+- **crop_project's "dark in June" class is mostly dry ground**, as crop_project suspected: NDWI calls
+  20% of it water, against 95% of its "flood" class.
+- **The models with optical agree best with NDWI** (0.84-0.90), but they read the same optical image as
+  NDWI, so this is not independent evidence. The day was clear (94% clear pixels, cloud mask 0.2%), so
+  this is a test of the radar and optical conversion, not of the cloud handling.
+- The flooded area in the dropout model's map: 870 km2 in a 50 x 50 km box, about a third of it.
+  The map is saved as a GeoTIFF (`runs/dadu/dadu_water_2022-09-23.tif`) that opens in QGIS or Google
+  Earth, to compare with what people saw on the ground.
+
+![Dadu, 23 September 2022](runs/dadu/dadu_maps.png)
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
@@ -245,4 +303,5 @@ from 0.06 to 0.40.
 - [x] A cloud mask: blank cloudy optical pixels before mapping, so real clouds are treated as missing
 - [ ] Sensor dropout with cloud-shaped patches instead of whole crops
 - [ ] A pretrained encoder vs training from scratch
-- [ ] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project
+- [x] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project
+- [ ] Give the U-Net a pre-flood radar image too (before / after), now that raw radar can be rebuilt for any date

@@ -1,0 +1,13 @@
+event,band,product,chips,median_diff_db,mean_abs_diff_db,corr_5x5
+Bolivia,VV,sigma0,15,0.01,1.38,0.975
+Bolivia,VV,gamma0,15,0.86,1.43,
+Bolivia,VH,sigma0,15,0.01,1.54,0.982
+Bolivia,VH,gamma0,15,1.19,1.8,
+Somalia,VV,sigma0,26,0.02,2.36,0.734
+Somalia,VV,gamma0,26,1.41,2.14,
+Somalia,VH,sigma0,26,0.02,2.76,0.774
+Somalia,VH,gamma0,26,1.84,2.59,
+Nigeria,VV,sigma0,18,0.03,2.26,0.908
+Nigeria,VV,gamma0,18,1.72,2.36,
+Nigeria,VH,sigma0,18,0.03,2.58,0.901
+Nigeria,VH,gamma0,18,2.13,2.86,

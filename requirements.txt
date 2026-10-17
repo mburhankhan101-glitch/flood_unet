@@ -6,3 +6,6 @@ scikit-learn
 torch  # CPU build: pip install torch --index-url https://download.pytorch.org/whl/cpu
 scipy
 s2cloudless
+pystac-client
+planetary-computer
+requests

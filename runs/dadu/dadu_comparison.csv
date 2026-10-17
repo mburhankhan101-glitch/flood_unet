@@ -1,0 +1,8 @@
+map,water_km2,agreement_with_ndwi,agreement_with_threshold
+Threshold (crop_project),800.5,0.745,1.0
+"Threshold, without the June-dark class",690.2,0.802,0.862
+Radar U-Net,1168.2,0.628,0.644
+Optical U-Net,848.9,0.895,0.721
+Radar + optical U-Net,906.8,0.842,0.715
+Sensor dropout + cloud mask,869.6,0.854,0.745
+NDWI > 0 (clear pixels),683.3,1.0,0.745
