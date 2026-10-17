@@ -186,6 +186,55 @@ before training: optical removed on test at about 0.60 or more, and clear test w
 - The cut (0.65) was chosen on validation with optical present; the "optical removed" rows use the
   same cut, so they are not tuned for radar-only use.
 
+## Step 3c: a cloud mask
+
+```powershell
+python clouds.py       # about 30 minutes; writes runs/clouds/
+```
+
+Sensor dropout taught the model what to do when optical is *missing*; a real cloud is *present*,
+bright and looks like dry land. So clouds are first detected with
+[s2cloudless](https://github.com/sentinel-hub/sentinel2-cloud-detector) (Sentinel Hub's per-pixel cloud
+detector), the optical bands under the mask are set to 0, and the dropout model maps those pixels from
+radar.
+
+**How it is tested.** Clouds are mostly unlabelled in the hand labels, so real clouds (from 62 training
+chips) are pasted onto the validation and test chips, whose labels were drawn on clear imagery and stay
+true under the cloud. Radar is unchanged, as in reality. The clouds to paste are picked without
+s2cloudless (bright, left unlabelled by the annotators, both sensors present), so the mask is not
+tested only on clouds it is known to find. The mask's probability cut is chosen on validation by flood
+IoU; smoothing (4 pixels) and dilation (2 pixels) were fixed in advance.
+
+| Pooled IoU of water, test chips with pasted clouds | Under the cloud | Outside it | All |
+|---|---|---|---|
+| Radar only | **0.654** | 0.652 | 0.652 |
+| Optical only | 0.051 | **0.824** | 0.495 |
+| Radar + optical (Step 3) | 0.109 | 0.805 | 0.467 |
+| Radar + optical (Step 3) + mask | 0.412 | 0.795 | 0.689 |
+| Sensor dropout | 0.326 | 0.773 | 0.618 |
+| **Sensor dropout + mask** | 0.588 | 0.779 | **0.721** |
+
+On the real (unchanged) test chips the mask costs almost nothing: 0.780 without it, 0.784 with it
+(Pakistan 0.686 to 0.668). On the cloudiest real chip, Sri-Lanka_1049830, it lifts the dropout model
+from 0.06 to 0.40.
+
+- **Under a cloud, optical models fail completely** (0.05 and 0.11): the water simply disappears.
+- **Mask and dropout work together.** Either alone helps a little (0.41, 0.33 under the cloud); both
+  together reach 0.59 under the cloud and the best overall score, 0.72.
+- **Still below radar alone under the cloud** (0.59 against 0.65). The mask misses 7% of the pasted
+  cloud pixels (mostly thin edges), and the model was trained with *whole* crops blanked, never with
+  part of a crop, which is what a mask produces. Training with cloud-shaped blank patches is the next
+  thing to try.
+- **The best cut was the highest one tried (0.7), not a low one.** The mask also flags clear ground
+  (15-27% of clear pixels next to the pasted clouds, depending on the cut; 4% of the real Pakistan
+  pixels), and each wrongly masked pixel loses the optical advantage. Missing a cloud is the worse
+  mistake per pixel, but false alarms of the mask are far more common. 0.7 sits at the edge of the
+  grid, so a higher cut might do better still; it was not tried after the test had been seen.
+- **Easier than reality:** no cloud shadows (dark, water-like in optical) were pasted, and a real flood
+  day adds haze and rain.
+
+![Pasted clouds](runs/clouds/cloud_test.png)
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
@@ -193,6 +242,7 @@ before training: optical removed on test at about 0.60 or more, and clear test w
 - [x] Better training: augmentation, Dice loss, a tuned decision threshold (only the threshold helped)
 - [x] Radar + optical (Sentinel-2) vs radar alone (optical wins on clear pixels; the fused model ignores radar)
 - [x] Train radar + optical with the optical bands randomly blanked, so it learns to fall back on radar
-- [ ] A cloud mask: blank cloudy optical pixels before mapping, so real clouds are treated as missing
+- [x] A cloud mask: blank cloudy optical pixels before mapping, so real clouds are treated as missing
+- [ ] Sensor dropout with cloud-shaped patches instead of whole crops
 - [ ] A pretrained encoder vs training from scratch
 - [ ] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project
