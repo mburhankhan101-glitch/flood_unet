@@ -5,4 +5,5 @@ Radar U-Net,1168.2,0.628,0.644
 Optical U-Net,848.9,0.895,0.721
 Radar + optical U-Net,906.8,0.842,0.715
 Sensor dropout + cloud mask,869.6,0.854,0.745
+Radar before/after U-Net,1053.2,0.675,0.698
 NDWI > 0 (clear pixels),683.3,1.0,0.745

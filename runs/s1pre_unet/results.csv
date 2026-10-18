@@ -1,0 +1,13 @@
+set,method,chips,iou,found,false_alarms,missed
+valid,Otsu,89,0.507,1597878,922532,633328
+valid,U-Net at 0.5,89,0.607,1916688,927468,314518
+valid,U-Net at 0.65 (tuned),89,0.643,1707143,424874,524063
+test,Otsu,90,0.554,1880644,876827,634364
+test,U-Net at 0.5,90,0.586,2115515,1096526,399493
+test,U-Net at 0.65 (tuned),90,0.635,1960610,573198,554398
+Pakistan (test chips),Otsu,6,0.181,99484,349940,99413
+Pakistan (test chips),U-Net at 0.5,6,0.179,58904,129454,139993
+Pakistan (test chips),U-Net at 0.65 (tuned),6,0.153,41851,74493,157046
+bolivia,Otsu,15,0.718,393340,96211,58561
+bolivia,U-Net at 0.5,15,0.648,414264,187706,37637
+bolivia,U-Net at 0.65 (tuned),15,0.686,374481,93937,77420

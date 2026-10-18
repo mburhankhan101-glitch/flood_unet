@@ -1,6 +1,6 @@
 """
 Score a trained U-Net against the hand labels, next to the dataset's Otsu baseline, on the same pixels.
-The input bands (s1, s2 or s1s2) are read from the run's args.json.
+The input bands (s1, s2, s1s2 or s1pre) are read from the run's args.json.
 
 Test sets: test (90 chips, the training events), Bolivia (15 chips, an event never seen) and the
 Pakistan test chips (6). Pooled IoU of water, plus per-chip results, and a figure of the Pakistan
@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from flood_data import band_stats, load_split, pooled_iou, raw_chip, raw_s2, read, split_chips
+from flood_data import CHANNELS, band_stats, load_split, pooled_iou, raw_chip, raw_s2, read, split_chips
 from train import predict
 from unet import UNet
 
@@ -46,7 +46,7 @@ def main():
     run = os.path.join("runs", args.name)
     bands = json.load(open(os.path.join(run, "args.json"))).get("bands", "s1")
     stats = band_stats(bands)
-    model = UNet(cin=sum(len(st["mean"]) for st in stats.values()), base=args.base)
+    model = UNet(cin=CHANNELS[bands], base=args.base)
     model.load_state_dict(torch.load(os.path.join(run, "best.pt"), weights_only=True))
     rows, chip_rows = [], []
     figure = None

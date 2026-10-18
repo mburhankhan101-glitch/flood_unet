@@ -22,6 +22,7 @@ crash, a closed laptop) continues where it left off when started again.
     python train.py --name test --epochs 2
     python train.py --name s1s2_unet --bands s1s2 --patience 20
     python train.py --name s1s2_drop50 --bands s1s2 --drop-optical 0.5 --patience 20
+    python train.py --name s1pre_unet --bands s1pre --patience 20       # radar now + radar before
 """
 import argparse
 import json
@@ -42,7 +43,7 @@ SEED = 0
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", default="s1_unet")
-    p.add_argument("--bands", choices=["s1", "s2", "s1s2"], default="s1")
+    p.add_argument("--bands", choices=["s1", "s2", "s1s2", "s1pre"], default="s1")
     p.add_argument("--epochs", type=int, default=60)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--crop", type=int, default=256)

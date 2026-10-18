@@ -9,8 +9,10 @@ around 67.70 E, 26.90 N, on the training chips' own grid (lon/lat, 8.98e-5 degre
     radar    sigma-nought rebuilt from the raw GRD file (s1_grd.py, checked against training chips)
     optical  L2A converted towards L1C with the fit from the Pakistan chips (s2_l2a.py); B10 missing;
              clouds and cloud shadows from L2A's scene classification (SCL), grown by 2 pixels
+    before   the June 2022 passes of the same orbit (crop_project's pre-monsoon reference), rebuilt the
+             same way and averaged in linear power, for the before / after radar model
     models   radar only, optical only, radar + optical (Step 3), sensor dropout + cloud mask (Step 3c),
-             each with its own cut from validation; the area is mapped in overlapping 512-pixel tiles
+             radar before / after, each with its own cut from validation; the area is mapped in overlapping 512-pixel tiles
              and the tiles are blended with weights that fall off towards their edges
 
 There are no hand labels here, so the maps are compared with each other: the threshold map of
@@ -42,6 +44,7 @@ from flood_data import CLIP, band_stats
 from unet import UNet
 
 DATE, ORBIT = "2022-09-23", 78
+BEFORE = ("2022-06-01", "2022-06-30")                                    # crop_project's June reference
 CROP_PROJECT = os.path.join("..", "crop_project")
 CROP_CACHE = os.path.join(CROP_PROJECT, "cache", "flood", "vv_67.7_26.9_50000_20_2022-05-01_2022-12-31.npz")
 UTM, UTM_BOX = "EPSG:32642", (345900.0, 2951020.0, 395900.0, 3001020.0)    # crop_project's box
@@ -77,9 +80,26 @@ def inputs(tr, shape, crs):
         raw, scl = s2_l2a.l2a(s2_l2a.find_l2a(bbox, DATE), tr, shape, crs)
         return np.concatenate([raw.clip(0, 65000), scl[None].astype("float32")]).astype("uint16")
 
+    def before():
+        days = {}
+        for i in s1_grd.catalog().search(collections=["sentinel-1-grd"], bbox=bbox,
+                                         datetime=f"{BEFORE[0]}T00:00:00Z/{BEFORE[1]}T23:59:59Z").items():
+            if i.properties.get("sat:relative_orbit") == ORBIT:
+                days.setdefault(str(i.datetime.date()), True)
+        total, count = np.zeros((2,) + tuple(shape), "float32"), np.zeros((2,) + tuple(shape), "float32")
+        for day in sorted(days)[-3:]:
+            db, shift = s1_grd.radar((bbox, day, ORBIT), tr, shape, crs)
+            ok = np.isfinite(db)
+            total[ok] += 10 ** (db[ok] / 10)
+            count[ok] += 1
+            print(f"before: {day}, shifted by {shift[0]:.0f} rows, {shift[1]:.0f} columns", flush=True)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where(count > 0, 10 * np.log10(total / np.maximum(count, 1)), np.nan).astype("float32")
+
     s1 = cached(f"radar_{DATE}.npy", radar)
     s2 = cached(f"optical_{DATE}.npy", optical)
-    return s1, s2[:13], s2[13].astype("uint8")
+    pre = cached(f"radar_before_{BEFORE[0]}_{BEFORE[1]}.npy", before)
+    return s1, s2[:13], s2[13].astype("uint8"), pre
 
 
 def standardise(s1, s2, fit, stats, cloud):
@@ -184,18 +204,24 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     tr, shape, crs = grid()
     print(f"grid {shape[1]} x {shape[0]} pixels", flush=True)
-    s1, s2, scl = inputs(tr, shape, crs)
+    s1, s2, scl, pre = inputs(tr, shape, crs)
     stats = band_stats("s1s2")
     fit = json.load(open(os.path.join(OUT, "s2_fit.json")))
     cloud = ndimage.binary_dilation(np.isin(scl, s2_l2a.CLOUD_SCL), iterations=2)
     x = standardise(s1, s2, fit, stats, np.zeros(shape, bool))
     xm = standardise(s1, s2, fit, stats, cloud)
+    xp = np.zeros((4,) + tuple(shape), dtype="float16")                # radar now, then radar before
+    xp[:2] = x[:2]
+    for b in range(2):
+        v = np.clip(pre[b], *CLIP)
+        xp[b + 2] = np.nan_to_num((v - stats["s1"]["mean"][b]) / stats["s1"]["std"][b], nan=0.0)
 
     maps, probs = {}, {}
     for name, run, cin, xin in (("Radar U-Net", "s1_unet", 2, lambda: np.ascontiguousarray(x[:2])),
                                 ("Optical U-Net", "s2_unet", 13, lambda: np.ascontiguousarray(x[2:])),
                                 ("Radar + optical U-Net", "s1s2_unet", 15, lambda: x),
-                                ("Sensor dropout + cloud mask", "s1s2_drop50", 15, lambda: xm)):
+                                ("Sensor dropout + cloud mask", "s1s2_drop50", 15, lambda: xm),
+                                ("Radar before/after U-Net", "s1pre_unet", 4, lambda: xp)):
         model, cut = load_model(run, cin)
         probs[name] = predict_large(model, xin())
         maps[name] = probs[name] > cut
@@ -250,7 +276,7 @@ def main():
               ("Threshold map (crop_project rule)", show(the_thr), "Blues"),
               ("Radar U-Net", show(maps["Radar U-Net"]), "Blues"),
               ("Sensor dropout + cloud mask U-Net", show(best), "Blues"),
-              ("Optical U-Net", show(maps["Optical U-Net"]), "Blues"),
+              ("Radar before/after U-Net", show(maps["Radar before/after U-Net"]), "Blues"),
               ("dropout U-Net vs threshold", np.where(sub(common), sub(diff), np.nan),
                ListedColormap(["#efe9dc", "#1f6aa3", "#e08a2c", "#7b3fa0"]))]
     fig, axes = plt.subplots(2, 4, figsize=(20, 10.5))

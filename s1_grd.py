@@ -51,7 +51,17 @@ def find_scenes(bbox, date, orbit=None, collection="sentinel-1-grd"):
 
 @lru_cache(maxsize=16)
 def _xml(href):
-    return ET.fromstring(requests.get(href, timeout=180).content)
+    r = requests.get(href, timeout=180)
+    r.raise_for_status()                    # an expired link returns an error page, not the table
+    return ET.fromstring(r.content)
+
+
+def fresh(item):
+    """A copy of the item with newly signed links (sign() leaves links that carry an old token alone)."""
+    it = item.clone()
+    for a in it.assets.values():
+        a.href = a.href.split("?")[0]
+    return planetary_computer.sign(it)
 
 
 def _floats(node, tag):
@@ -146,7 +156,10 @@ def gamma0(items, dst_transform, dst_shape, dst_crs):
             with rasterio.open(item.assets[pol].href) as src:
                 x0, y0, x1, y1 = transform_bounds(dst_crs, src.crs, *bounds)
                 win = rasterio.windows.from_bounds(x0 - 200, y0 - 200, x1 + 200, y1 + 200, src.transform)
-                win = win.intersection(Window(0, 0, src.width, src.height)).round_offsets().round_lengths()
+                try:                                         # a slice of the pass that misses this area
+                    win = win.intersection(Window(0, 0, src.width, src.height)).round_offsets().round_lengths()
+                except rasterio.errors.WindowError:
+                    continue
                 if win.width < 2 or win.height < 2:
                     continue
                 arr = src.read(1, window=win)

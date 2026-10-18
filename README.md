@@ -293,6 +293,46 @@ hand labels here, so this is agreement, not accuracy):
 
 ![Dadu, 23 September 2022](runs/dadu/dadu_maps.png)
 
+## Step 5: before / after
+
+```powershell
+python s1_pre.py                                        # a before image for every chip (about 3.5 hours)
+python train.py --name s1pre_unet --bands s1pre --patience 20
+python evaluate.py --name s1pre_unet
+python dadu.py                                          # adds the June 2022 before image for Dadu
+```
+
+In Dadu the simple threshold beat the radar U-Net because it compares the flood day with June. So
+every chip got a "before" radar image (`s1_pre.py`): the passes on the same orbit as the flood image
+(same viewing geometry, so no fake change) between 90 and 12 days before it, up to three, rebuilt as
+sigma-nought like the Dadu radar and averaged. All 446 chips have one
+([dates per event](runs/prepost/pre_dates.csv)). The U-Net then gets four bands, radar now and radar
+before, standardised with the same statistics so a difference keeps its meaning; everything else is
+the Step 1 recipe. The targets were fixed before training: test at least 0.652, Pakistan above
+0.198, and on Dadu an agreement with NDWI above the threshold map's 0.80.
+
+On the training chips, dry land hardly changes (median +0.1 dB) and water gets 2.6 dB darker, but
+only 47% of water pixels get 3 dB or more darker: the rest was water already (rivers, lakes). In the
+Pakistan chips, mostly the Indus in June, water was dark before as well (-16.5 dB to -17.2 dB).
+
+| Pooled IoU of water (tuned cut) | Radar now (Step 1) | Radar now + before | Target |
+|---|---|---|---|
+| Test (90 chips) | **0.652** | 0.635 | not met |
+| Pakistan test chips (6) | **0.198** | 0.153 | not met |
+| Bolivia, unseen (15) | 0.670 | **0.686** | |
+| Dadu, agreement with NDWI | 0.628 | **0.675** | 0.80, not met |
+
+- **On the labelled chips it did not help.** The labels count all water, and in these chips about
+  half of it was there before the flood, so "changed" is only a partial clue; with 252 chips and one
+  run, the model ended slightly below radar alone on test and Pakistan.
+- **On Dadu, where most of the water is new, it helped:** agreement with NDWI rose from 0.63 to 0.68,
+  and the mapped water fell from 1168 to 1053 km2, mostly fewer dark fields called water. It is still
+  far from the threshold map (0.80), which has an advantage the U-Net lacks: its cut (-13.7 dB) is set
+  by Otsu on this very scene, while the U-Net carries cuts learned on other floods.
+- What would help next, untested: training on change itself (flood labels rather than all water),
+  combining before / after with optical and sensor dropout, or adapting to a region with a few local
+  labels, for example from a field visit.
+
 ## Roadmap
 
 - [x] Download the hand-labelled chips; score the Otsu baseline
@@ -304,4 +344,4 @@ hand labels here, so this is agreement, not accuracy):
 - [ ] Sensor dropout with cloud-shaped patches instead of whole crops
 - [ ] A pretrained encoder vs training from scratch
 - [x] Apply the model to the 2022 Dadu floods and compare with the threshold map from crop_project
-- [ ] Give the U-Net a pre-flood radar image too (before / after), now that raw radar can be rebuilt for any date
+- [x] Give the U-Net a pre-flood radar image too (helped on Dadu, not on the labelled test chips)

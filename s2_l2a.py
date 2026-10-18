@@ -49,8 +49,11 @@ def _read(href, dst_transform, dst_shape, dst_crs, resampling):
     with rasterio.open(href) as src:
         x0, y0, x1, y1 = transform_bounds(dst_crs, src.crs, *rasterio.transform.array_bounds(*dst_shape, dst_transform))
         win = rasterio.windows.from_bounds(x0 - 300, y0 - 300, x1 + 300, y1 + 300, src.transform)
-        win = win.intersection(Window(0, 0, src.width, src.height)).round_offsets().round_lengths()
         dst = np.zeros(dst_shape, dtype="float32")
+        try:                                                 # a tile that misses this area
+            win = win.intersection(Window(0, 0, src.width, src.height)).round_offsets().round_lengths()
+        except rasterio.errors.WindowError:
+            return dst
         if win.width >= 2 and win.height >= 2:
             reproject(src.read(1, window=win).astype("float32"), dst, src_transform=src.window_transform(win),
                       src_crs=src.crs, dst_transform=dst_transform, dst_crs=dst_crs, resampling=resampling,
